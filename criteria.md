@@ -44,60 +44,58 @@ Two things worth knowing before you pick numbers:
 ---
 ## 1.
 
-<!-- Your criterion. It must name a number. -->
+## 1. False Positives
 
 
+Out of 10 pieces of text written by humans, at most 1 (<= 1/10) can be incorrectly labeled as "high-confidence AI".
 
-**Why this target:**
-
-
-
----
-
-## 2.
-
-<!-- Your criterion. -->
-
-
-
-**Why this target:**
+**Why this target:** 
+As 0 is practically impossible (too perfect) for any AI detector, allowing 1 error is realistic. However, we keep it strictly at 1 because on a writing site, falsely accusing a real human writer destroys trust and costs much more than missing an AI text.
 
 
 
 ---
 
-## 3.
-
-<!-- Your criterion. -->
+## 2. Score Spread
 
 
+The average confidence score of 5 clearly AI-generated pieces and 5 clearly human-written pieces must have a gap of at least 0.45.
 
 **Why this target:**
+ A required gap of 0.45 ensures the system strongly differentiates between the two extremes. This wide margin guarantees that our labeling thresholds are reliable and clear inputs won't mistakenly fall into the "unsure" middle zone.
 
 
 
 ---
 
-## 4.
-
-<!-- Your criterion. -->
+## 3. Label Coverage
 
 
+100% of all possible confidence scores from 0.00 to 1.00 must map to exactly one of the three label variants, leaving zero gaps and zero overlaps.
 
-**Why this target:**
+**Why this target:** 
+If there are unhandled score ranges (e.g., Human ends at 0.39 and Unsure starts at 0.41), a score of 0.40 would cause the application to crash or return an empty label. 100% coverage ensures complete system stability and a seamless user experience.
 
 
 
 ---
 
-## 5.
+## 4. The Appeal Path
 
-<!-- Your criterion. -->
+100% of valid `POST /appeal` requests must successfully change the item's status to `under_review` and permanently record it in the `logs/audit.jsonl` file.
+
+**Why this target:** 
+If an appeal is lost or fails to log, a falsely accused human writer is left with no way to get help. Complete reliability (100%) is required for the system's safety and accountability.
 
 
+---
 
-**Why this target:**
+## 5. Bad Input and User-Friendly Errors
 
+Submitting a request with missing text, empty text (`""`), or text exceeding 10,000 characters must not crash the server. Instead, it must return an HTTP 400 status code accompanied by a specific, human-readable JSON error message explaining the exact issue (e.g., "Your text is empty, please provide text" or "The text must be within 10,000 characters").
+
+**Why this target:** 
+A generic "400 Bad Request" is too technical and completely unhelpful for normal users. Providing exact, descriptive warning messages guides the user to fix their specific mistake immediately without frustration. This improves the overall user experience while still protecting our backend services from failing.
 
 
 ---
