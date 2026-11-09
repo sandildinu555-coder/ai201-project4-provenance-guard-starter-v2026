@@ -13,7 +13,7 @@
 > and in another:
 >
 > ```bash
-> curl -X POST http://127.0.0.1:5000/ping \
+> curl -X POST [http://127.0.0.1:5000/ping](http://127.0.0.1:5000/ping) \
 >   -H "Content-Type: application/json" \
 >   -d '{"message": "hello"}'
 > ```
@@ -36,121 +36,131 @@
 
 ## What This Does
 
-<!-- The path a submission takes, from arriving to the label a reader sees.
-     Six or seven steps — this is the trace you wrote in Milestone 1. -->
-
-
+When a user submits text, the system takes the following path:
+1. **Input Validation:** The system checks if the text is missing, empty, or exceeds 10,000 characters. If it violates these rules, it immediately returns a 400 Bad Request error with a clear explanation.
+2. **Signal 1 (Detector):** The text passes through a local 550MB GPT-2 model (`detector.py`) which evaluates how predictable the next words are (context/meaning).
+3. **Signal 2 (Stylometry):** The text is analyzed for its physical shape (`stylometry.py`), measuring sentence length spread, punctuation density, and vocabulary variety.
+4. **Scoring:** The scores from both signals are combined using a weighted average to produce a final 0-1 confidence score (`scoring.py`).
+5. **Labeling:** The numerical score is mapped to one of three plain-English labels (human, AI, or unsure).
+6. **Logging:** The decision (including `model_score` and `style_score`) is permanently written to an audit log (`audit.jsonl`).
+7. **Response:** The user receives a JSON response containing a unique `content_id`, the confidence score, and the plain-English label. If they disagree, they can use the `content_id` to submit an appeal to the `/appeal` endpoint, which flags the entry as `under_review` in the audit log.
 
 ---
 
 ## Signals and Scoring
 
-<!-- For each signal: what property it measures, why that might differ between
-     human and AI writing, and WHAT IT CAN'T SEE.
-
-     The blind spot is not optional. If you can't name it you don't understand
-     the signal yet — and unit 8's attack set is built out of blind spots. -->
-
 ### Signal one — the model signal
 
-**What it measures:**
+**What it measures:** The predictability of the text based on next-word probabilities (using a GPT-2 language model).
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** AI models are designed to generate the most statistically likely next word, producing highly predictable text. Humans write unpredictably, using rare idioms or unexpected phrasing.
 
-**What it can't see:**
+**What it can't see:** It cannot recognize that simple, plain English written by a human is inherently predictable, leading to a massive blind spot where it falsely flags basic human writing as AI.
 
 ### Signal two — the style signal
 
-**What it measures:**
+**What it measures:** The physical shape of the text by calculating the coefficient of variation of sentence lengths, expressive punctuation density, and type-token ratio.
 
-**Why that might differ between human and AI writing:**
+**Why that might differ between human and AI writing:** AI tends to write uniform, medium-length sentences with minimal expressive punctuation and repetitive vocabulary. Humans write "lumpy" text—mixing a two-word sentence with a twenty-word sentence and using dashes, semicolons, or exclamation marks to express emotion.
 
-**What it can't see:**
+**What it can't see:** It cannot read the actual meaning of the words. An attacker can easily manipulate this signal by injecting random punctuation or arbitrarily breaking up sentences without changing the core AI-generated meaning.
 
 ### The combining rule
 
-<!-- Write the rule in words, then give the numbers. What happens when the two
-     signals disagree? -->
+**The rule:** We use a weighted average favoring the model signal slightly more because it reads actual context, while relying heavily on the style signal to rescue simple human writing from being falsely flagged.
 
-**The rule:**
-
-**The numbers:**
+**The numbers:** `(0.60 * model_score) + (0.40 * style_score)`
 
 **Where it lives:** `scoring.py::combine_signals`
 
-<!-- ⚠️ The grader checks your code against that line. If your rule lives
-     somewhere else, say where. -->
-
-**A case where my two signals split, and what my rule does with it:**
-
-
+**A case where my two signals split, and what my rule does with it:** 
+If a human writes a very simple, direct email, the detector might flag it as highly predictable AI (`0.80`), but the stylometry will recognize the human sentence variance and punctuation (`0.10`). The 40% style weight pulls the final score down to `0.52`, safely landing it in the "unsure" category rather than falsely accusing the human writer of using AI.
 
 ---
 
 ## Label Variants
 
-<!-- The exact text of all three labels, as a reader would see them, and the
-     score range each covers.
-
-     Write them for someone who has never heard the word "threshold". -->
-
 | Label | Score range | The exact text a reader sees |
 |---|---|---|
-| high-confidence human |  |  |
-| unsure |  |  |
-| high-confidence AI |  |  |
+| high-confidence human | 0.00 – 0.35 | We are highly confident that this text was written by a human. |
+| unsure | 0.35 – 0.65 | Our system cannot reliably determine whether this piece was written by a person or generated by AI. |
+| high-confidence AI | 0.65 – 1.00 | We are highly confident that this text was generated by AI. |
 
 **Why I worded the "unsure" one this way:**
-<!-- It's the hardest of the three. It has to admit uncertainty without
-     sounding like an accusation, because the person reading it may well have
-     written every word themselves. -->
-
-
+It is critical to admit the system's limitations directly without sounding accusatory. If a human writer receives this label on their original work, an ambiguous or suspicious message would feel insulting. This wording neutrally states that the tool simply lacks enough evidence, protecting the writer's integrity.
 
 ---
 
 ## Sample Run
 
-<!-- One submission and one appeal, pasted as text: the request, the response,
-     and the log entries. -->
-
 **A submission**
 
-<!-- The response needs content_id, guess, confidence, label, AND both
-     signal scores - model_score and style_score. Unit 8's tools read those
-     two off the response, so leaving them out costs you next unit's
-     diagnostics. -->
-
 ```bash
-$ curl -X POST http://127.0.0.1:5000/submit \
+$ curl.exe -X POST [http://127.0.0.1:5000/submit](http://127.0.0.1:5000/submit) \
   -H "Content-Type: application/json" \
-  -d '{"text": "...", "creator_id": "..."}'
+  -d '{"text": "Wait—did the deployment actually fail again?! I checked the logs at 3:14 AM, cross-referenced every single stack trace (even the obscure socket timeouts), and found nothing; honestly, this whole microservice architecture is driving me crazy!", "creator_id": "test_human"}'
 ```
 
 ```json
-
+{
+  "confidence": 0.1985,
+  "content_id": "196380fa-fbb4-4647-8445-6f183e031800",
+  "guess": "unsure",
+  "label": "Our system cannot reliably determine whether this piece was written by a person or generated by AI.",
+  "model_score": 0.3309,
+  "style_score": 0.0
+}
 ```
 
 **An appeal**
 
 ```bash
-$ curl -X POST http://127.0.0.1:5000/appeal \
+$ curl.exe -X POST [http://127.0.0.1:5000/appeal](http://127.0.0.1:5000/appeal) \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "...", "reasoning": "..."}'
+  -d '{"content_id": "196380fa-fbb4-4647-8445-6f183e031800", "reasoning": "I wrote every word of this myself!", "creator_id": "test_human"}'
 ```
 
 ```json
-
+{
+  "content_id": "196380fa-fbb4-4647-8445-6f183e031800",
+  "message": "Your appeal has been recorded and is now under review.",
+  "ok": true,
+  "status": "under_review"
+}
 ```
 
 **What the log shows afterwards**
 
 ```bash
-$ curl "http://127.0.0.1:5000/log?limit=3"
+$ curl.exe "[http://127.0.0.1:5000/log?limit=2](http://127.0.0.1:5000/log?limit=2)"
 ```
 
 ```json
-
+{
+  "count": 2,
+  "entries": [
+    {
+      "combined_score": null,
+      "content_id": "2066cf7f-bc06-4f61-8a58-444add0524b4",
+      "creator_id": "test_edited_ai",
+      "guess": "unsure",
+      "label": null,
+      "model_score": 0.3813,
+      "score": 0.4436,
+      "status": "decided",
+      "style_score": 0.5371,
+      "timestamp": "2026-11-09T04:08:49+00:00"
+    },
+    {
+      "content_id": "196380fa-fbb4-4647-8445-6f183e031800",
+      "creator_id": "test_human",
+      "event": "appeal",
+      "reasoning": "I wrote every word of this myself!",
+      "status": "under_review",
+      "timestamp": "2026-11-09T04:21:10+00:00"
+    }
+  ]
+}
 ```
 
 ---
@@ -159,15 +169,15 @@ $ curl "http://127.0.0.1:5000/log?limit=3"
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I asked the AI to explain the mathematical logic behind `sentence_length_spread` without using complex terminology.
+- *What came back:* The AI provided practical examples of how standard deviation works with AI-like uniform sentences vs. human-like varied sentences.
+- *What I changed:* This explanation helped me write the calculation correctly (`round(statistics.stdev(lengths) / statistics.mean(lengths), 4)`) and implement fallback `if` statements to handle single-sentence edge cases without crashing the server.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I pasted a 500 Internal Server Error traceback (`TypeError: log_appeal() missing 1 required positional argument: 'creator_id'`) that occurred when testing the `/appeal` endpoint.
+- *What came back:* The AI identified that I had forgotten to extract `creator_id` from the JSON payload before passing it to the `audit.log_appeal()` function.
+- *What I changed:* I added `creator_id = payload.get("creator_id", "unknown")` to extract the ID and successfully passed it to the audit logger, fixing the crash.
 
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
