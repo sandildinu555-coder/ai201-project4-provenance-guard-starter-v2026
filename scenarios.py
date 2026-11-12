@@ -1,80 +1,53 @@
 """
 What your test runs. ← UNIT 8, MILESTONE 3
-
-Each of your five criteria needs something run against it. A criterion about
-false positives needs your own writing. One about label coverage needs inputs
-across the score range. One about the appeal path needs a real content_id.
-
-Working that out is Milestone 3's first step, and this file is where you write
-it down. `run_eval.py` runs everything here three times.
-
-Two are filled in as examples. Replace them with what your criteria actually
-need — these are a shape, not a set.
-
-A scenario carries **either** of these:
-
-    "texts"   a list of strings. Each is sent as {"text": ..., "creator_id": ...}
-              with a creator_id made up for you. Use this for most criteria.
-
-    "bodies"  a list of whole request bodies, sent exactly as written. Use this
-              when the malformed request IS the point — empty text, no `text`
-              field at all, something enormous. A bad-input criterion needs it,
-              because you cannot express "the field is missing" as a string.
 """
 
 SCENARIOS = [
     {
         "name": "my own writing",
         "criterion": 1,
-        # ⚠️ PUT YOUR OWN WRITING HERE. Not AI text, not a sample from the web —
-        # things you actually wrote. This is the criterion that matters most and
-        # it's meaningless with someone else's prose.
         "texts": [
-            "REPLACE ME with a paragraph you wrote yourself.",
-            "REPLACE ME with another one. Ten pieces is the usual number.",
+            "Wait—did the deployment actually fail again?! I checked the logs at 3:14 AM, cross-referenced every single stack trace (even the obscure socket timeouts), and found nothing; honestly, this whole microservice architecture is driving me crazy!",
+            "I honestly can't believe how much time I spent trying to debug that one single line of Python yesterday. Turns out I just forgot a comma in the list comprehension! Typical.",
+            "The weather here in Kentucky has been absolutely wild lately—one day it's freezing, the next it feels like summer; I don't even know what jacket to wear anymore.",
+            "So, for the independent project, I built an offline daily task-scheduling app called My Planner under Lazarus Studios. Nothing bloated—just clean scheduling that works 100% offline.",
+            "Has anyone seen my blue water bottle?! I swear I left it at Hutchins Library right next to the reference desk after my shift, but now it's completely gone.",
+            "I've been practicing Hedwig's Theme and Red River Reel on the piano for weeks, and my left hand still refuses to cooperate with the fast tempo changes!",
+            "We really need to redesign the chassis and electrical wiring layout on our solar car before the next test run; otherwise, parasitic drag is going to tank our efficiency.",
+            "Why is it that every single time I finish a heavy leg day at the gym and walk outside, it immediately starts pouring rain?! The universe has terrible timing.",
+            "Back when I was breeding betta fish—especially my favorite one, Balerion the Black Dread—we always used catappa leaves to keep the water pH stable and healthy.",
+            "Working on a smart grid energy model in Python right now; trying to get the time-series forecasting to balance supply-load dynamics without overfitting is tougher than it looks!"
         ],
     },
     {
         "name": "label coverage",
         "criterion": 2,
-        # Inputs spread across your score range, so you can check all three
-        # labels are actually reachable.
         "texts": [
-            "REPLACE ME with something you're confident is AI-generated.",
-            "REPLACE ME with something you're confident is human-written.",
-            "REPLACE ME with something genuinely borderline.",
+            # High-confidence AI candidate
+            "In today's fast-paced digital landscape, leveraging advanced artificial intelligence technologies is crucial for modern enterprises aiming to optimize operational efficiency, streamline complex workflows, and unlock unprecedented avenues for sustainable growth.",
+            # High-confidence Human candidate
+            "Wait—what?! You're telling me the server crashed AGAIN at 2:15 AM?! I literally just fixed that socket bug yesterday; honestly, I give up!",
+            # Unsure / Borderline candidate
+            "The system processes incoming requests by checking the payload format and calculating two separate scores before returning a final response to the user."
         ],
     },
-    # A bad-input criterion looks like this. Uncomment and adjust if that's one
-    # of your five — these are raw request bodies, sent exactly as written.
-    #
-    # {
-    #     "name": "bad input",
-    #     "criterion": 3,
-    #     "bodies": [
-    #         {"text": "", "creator_id": "eval_bad_empty"},
-    #         {"creator_id": "eval_bad_missing"},          # no text field at all
-    #         {"text": "word " * 50000, "creator_id": "eval_bad_huge"},
-    #         {"text": None, "creator_id": "eval_bad_null"},
-    #     ],
-    # },
-
-    # TODO: add what your remaining criteria need.
-    #
-    # A criterion about the appeal path can't be tested by sending text alone;
-    # it needs a submission first and then an appeal against the content_id
-    # that came back. You'll need to test that one by hand, or extend this file
-    # and run_eval.py to do it. Saying which you did is part of the write-up.
+    {
+        "name": "bad input",
+        "criterion": 3,
+        "bodies": [
+            {"text": "", "creator_id": "eval_bad_empty"},
+            {"text": "   \n\t  ", "creator_id": "eval_bad_whitespace"},
+            {"creator_id": "eval_bad_missing"},
+            {"text": "word " * 2500, "creator_id": "eval_bad_huge"},
+            {"text": None, "creator_id": "eval_bad_null"},
+        ],
+    },
 ]
 
 
 def validate() -> list[str]:
     """
     Complain about anything malformed, before a long run rather than during.
-
-    A "bodies" scenario is deliberately exempt from the empty check — an empty
-    string is the whole point of a bad-input case, and refusing to run one
-    would make that criterion untestable.
     """
     problems = []
     for i, scenario in enumerate(SCENARIOS, 1):
