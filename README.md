@@ -25,13 +25,6 @@
 
 ---
 
-<!-- ─────────────────────────────────────────────────────────────────────────
-     Unit 7 asks for the first five sections. Unit 8 adds the five below.
-
-     Everything is pasted as TEXT. A pasted curl response gets full credit;
-     a picture of your terminal gets none.
-     ───────────────────────────────────────────────────────────────────────── -->
-
 <!-- ═══════════════════════ UNIT 7 — THE BUILD ═══════════════════════ -->
 
 ## What This Does
@@ -179,6 +172,12 @@ $ curl.exe "[http://127.0.0.1:5000/log?limit=2](http://127.0.0.1:5000/log?limit=
 - *What came back:* The AI identified that I had forgotten to extract `creator_id` from the JSON payload before passing it to the `audit.log_appeal()` function.
 - *What I changed:* I added `creator_id = payload.get("creator_id", "unknown")` to extract the ID and successfully passed it to the audit logger, fixing the crash.
 
+**Moment 3 (Unit 8)**
+
+- *What I asked for:* I shared the evaluation output from `run_eval.py --label before` and the `MF02` 500 error from `run_attacks.py` to help isolate why `label coverage` missed the `ai` label and why `MF02` crashed.
+- *What came back:* The AI pointed out that `style_score` (`0.5274`) weighted at `0.40` dragged the `0.6189` model score down to `0.5823` (below `AI_THRESHOLD = 0.65`), and highlighted that `MF02` sent a 1-character string that triggered `ValueError: Text is too short to score` inside `detector.py`.
+- *What I changed:* For Milestone 5, I adjusted `HUMAN_THRESHOLD = 0.40` and `AI_THRESHOLD = 0.55` in `config.py`, re-ran the attack and evaluation suites, and documented the resulting false-positive trade-off.
+
 <!-- ═══════════════════════ UNIT 8 — THE TEST ═══════════════════════ -->
 
 ---
@@ -197,8 +196,9 @@ Per `creator_id` when a valid non-empty string `creator_id` is provided in the J
 
 ```text
 200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
----
+```
 
+---
 
 ## Attack Run — Before
 
@@ -261,6 +261,7 @@ Per `creator_id` when a valid non-empty string `creator_id` is provided in the J
   [54/56] FL01_10 flood_same_creator 200   unsure   HELD
   [55/56] FL01_11 flood_same_creator 429   —        HELD (Rate limited properly!)
   [56/56] FL01_12 flood_same_creator 429   —        HELD (Rate limited properly!)
+```
 
 **Ten audit log entries from the run**
 
@@ -276,24 +277,37 @@ Per `creator_id` when a valid non-empty string `creator_id` is provided in the J
 {"timestamp": "2026-11-12T03:43:10+00:00", "creator_id": "attacker_flood", "event": "rejected", "status": "rejected", "reason": "rate_limited", "limit": "10 per 1 minute"}
 {"timestamp": "2026-11-12T03:43:10+00:00", "creator_id": "attacker_flood", "event": "rejected", "status": "rejected", "reason": "rate_limited", "limit": "10 per 1 minute"}
 ```
+
 ---
 
 ## Run Log and Verdicts
 
 <!-- Your five criteria across three trials. `run_eval.py --label before`. -->
 
+**Before Improvement (`--label before`)**
+
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
 | 1. False Positives (Human text flagged as AI) | ≤ 1 of 10 | 0/10 | 0/10 | 0/10 | MET |
-| 2. Score Spread | Gap ≥ 0.45 | N/A | N/A | N/A | UNTESTED |
+| 2. Score Spread | Gap ≥ 0.45 | 0.3695 | 0.3695 | 0.3695 | MISSED |
 | 3. Label Coverage | 3 of 3 | 2/3 | 2/3 | 2/3 | MISSED |
+| 4. The Appeal Path | 100% | 1/1 | 1/1 | 1/1 | MET (Hand-tested) |
+| 5. Bad Input (Reject gracefully with 400) | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+
+**After Improvement (`--label after`)**
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 1. False Positives (Human text flagged as AI) | ≤ 1 of 10 | 1/10 | 1/10 | 1/10 | MET |
+| 2. Score Spread | Gap ≥ 0.45 | 0.3695 | 0.3695 | 0.3695 | MISSED |
+| 3. Label Coverage | 3 of 3 | 3/3 | 3/3 | 3/3 | MET |
 | 4. The Appeal Path | 100% | 1/1 | 1/1 | 1/1 | MET (Hand-tested) |
 | 5. Bad Input (Reject gracefully with 400) | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
 
 **Real output from one trial**, pasted as text, naming the file and function
 that produced it:
 
-**Produced by:** `results\run_2026-11-12_1547_before.md` (label coverage - Trial 1)
+**Produced by:** `run_eval.py::main` calling `app.py::submit` and `scoring.py::combine_signals` (recorded in `results\run_2026-11-12_1547_before.md`, label coverage - Trial 1)
 
 ```json
 [
@@ -325,74 +339,112 @@ that produced it:
     "sent": "The system processes incoming requests by checking the payload format "
   }
 ]
+```
+
+**Diagnoses**
+
+* **Missed Criterion 3 (Label Coverage) & Criterion 2 (Score Spread):**
+  * **Stage:** Signal two (`stylometry.py`) and The combining rule (`scoring.py::combine_signals`).
+  * **Mechanism:** The system failed to reach the AI label (Threshold: `0.65`) for clearly AI-generated text and compressed the score spread between human (`0.2128`) and AI (`0.5823`) to `0.3695` (below the `0.45` target). While the model signal scored AI text high (`0.6189`), the style signal scored it moderately (`0.5274`). Because the style signal carries a `0.40` weight, it dragged the combined score down to `0.5823`, landing it in the `unsure` band.
+
+* **Broken Evasion Attacks (`EV01`–`EV09` slipping through as Human/Unsure):**
+  * **Stage:** Signal two (`stylometry.py`) and Signal one (`detector.py`).
+  * **Mechanism:** The evasion inputs added typos, extra punctuation (`EV07`), human opening paragraphs (`EV09`), or kept text below the token window (`EV08`). Our stylometry signal measures sentence length variation and punctuation density. These perturbations artificially raised vocabulary variety and punctuation counts, causing `style_signal` to score them lower (`0.44`–`0.49`) and dragging the combined score below `0.65`.
+
+* **Broken False Positives (`FP01`–`FP08` human text flagged as AI/Unsure) & Prompt Injections (`PI01`–`PI06`):**
+  * **Stage:** Signal one (`detector.py`) and Signal two (`stylometry.py`).
+  * **Mechanism:** The local GPT-2 model measures token predictability. Plain, formal, rubric-following, or technical human prose (`FP01`–`FP07`) is highly predictable (`model_score` `0.61`–`0.88`) and uniform in sentence length (`style_score` `0.54`–`0.76`), pushing combined scores above `0.65` and falsely accusing human writers. Conversely, prompt injection strings (`PI01`–`PI06`) use unusual imperative formatting that lowers GPT-2 predictability (`0.20`–`0.64`), dropping scores into `unsure` or `human`.
+
+* **Broken Malformed Inputs (`MF02` Server Crash 500 & `MF03`–`MF07`, `RQ02`, `RQ06` returning 200s):**
+  * **Stage:** The Route (`app.py::submit`) and Signal one (`detector.py::model_signal`).
+  * **Mechanism:** `MF02` submitted a single-character string (`len == 1`), which passed `app.py`'s `not text.strip()` check but triggered an uncaught `ValueError: Text is too short to score — a few sentences at least` inside `detector.py`, crashing the request with a `500`. Meanwhile, `MF03`–`MF07` submitted control characters, punctuation-only, single long words, emojis, and right-to-left script that passed basic string checks and were scored as normal text (`200`), while `RQ02` (missing `creator_id`) and `RQ06` (`creator_id` as a dict) defaulted cleanly and returned `200`.
+
+---
 
 ## The Improvement
 
 **What I changed:**
+I narrowed the `unsure` band by changing `HUMAN_THRESHOLD` from `0.35` to `0.40` and `AI_THRESHOLD` from `0.65` to `0.55` in `config.py`.
 
 **Which diagnosis pointed at it:**
+The Label Coverage and Evasion diagnosis, which showed that clearly AI-generated text (`0.5823`) and lightly perturbed AI text (`EV07` at `0.5508`, `EV09` at `0.5994`) were clustering between `0.55` and `0.64`—stuck in the `unsure` band because `AI_THRESHOLD = 0.65` was too high given the `0.40` weight on `style_score`.
 
 ### Attack Run — After
 
 <!-- Same format. `run_attacks.py --label after` -->
 
-
+```text
+  [ 1/56] EV01   evasion           200   unsure   BROKE
+  [ 2/56] EV02   evasion           200   unsure   BROKE
+  [ 3/56] EV03   evasion           200   unsure   BROKE
+  [ 4/56] EV04   evasion           200   unsure   BROKE
+  [ 5/56] EV05   evasion           200   human    BROKE (AI text evaded as human)
+  [ 6/56] EV06   evasion           200   unsure   BROKE
+  [ 7/56] EV07   evasion           200   ai       HELD  (Improved! Flipped from unsure to ai at 0.5508)
+  [ 8/56] EV08   evasion           200   unsure   BROKE
+  [ 9/56] EV09   evasion           200   ai       HELD  (Improved! Flipped from unsure to ai at 0.5994)
+  [10/56] EV10   evasion           200   ai       HELD  (Successfully caught as AI at 0.9041)
+  [11/56] FP01   false_positive    200   ai       BROKE (Worsened! Plain human text flipped from unsure to ai at 0.6268)
+  [12/56] FP02   false_positive    200   ai       BROKE (Human text falsely accused as AI)
+  [13/56] FP03   false_positive    200   ai       BROKE
+  [14/56] FP04   false_positive    200   ai       BROKE
+  [15/56] FP05   false_positive    200   ai       BROKE
+  [16/56] FP06   false_positive    200   ai       BROKE
+  [17/56] FP07   false_positive    200   ai       BROKE
+  [18/56] FP08   false_positive    200   unsure   BROKE
+  [19/56] PI01   prompt_injection  200   unsure   BROKE
+  [20/56] PI02   prompt_injection  200   human    BROKE
+  [21/56] PI03   prompt_injection  200   ai       HELD  (Improved! Flipped from unsure to ai at 0.5803)
+  [22/56] PI04   prompt_injection  200   unsure   BROKE
+  [23/56] PI05   prompt_injection  200   unsure   BROKE
+  [24/56] PI06   prompt_injection  200   ai       HELD  (Improved! Flipped from unsure to ai at 0.5953)
+  [25/56] MF01   malformed         400   —        HELD  (Rejected whitespace-only input)
+  [26/56] MF02   malformed         500   —        BROKE (Crashed on 1-char text: ValueError in detector.py)
+  [27/56] MF03   malformed         200   human    BROKE (Processed control chars as human)
+  [28/56] MF04   malformed         200   human    BROKE (Processed punctuation-only as human)
+  [29/56] MF05   malformed         200   ai       BROKE (Processed single long word as AI)
+  [30/56] MF06   malformed         200   ai       BROKE (Processed emoji-only as AI)
+  [31/56] MF07   malformed         200   ai       BROKE (Processed RTL script as AI)
+  [32/56] MF08   malformed         400   —        HELD  (Rejected 60,000-char text)
+  [33/56] RQ01   malformed         400   —        HELD
+  [34/56] RQ02   malformed         200   unsure   BROKE
+  [35/56] RQ03   malformed         400   —        HELD
+  [36/56] RQ04   malformed         400   —        HELD
+  [37/56] RQ05   malformed         400   —        HELD
+  [38/56] RQ06   malformed         200   human    BROKE (Flipped from unsure to human at 0.3695)
+  [39/56] RQ07   malformed         400   —        HELD
+  [40/56] RQ08   malformed         400   —        HELD
+  [41/56] RQ09   malformed         400   —        HELD
+  [42/56] RQ10   malformed         400   —        HELD
+  [43/56] RQ11   malformed         400   —        HELD
+  [44/56] RQ12   malformed         400   —        HELD
+  [45/56] FL01_01 flood_same_creator 200   human    HELD  (Allowed under limit; flipped to human at 0.3572)
+  [46/56] FL01_02 flood_same_creator 200   human    HELD
+  [47/56] FL01_03 flood_same_creator 200   human    HELD
+  [48/56] FL01_04 flood_same_creator 200   human    HELD
+  [49/56] FL01_05 flood_same_creator 200   human    HELD
+  [50/56] FL01_06 flood_same_creator 200   human    HELD
+  [51/56] FL01_07 flood_same_creator 200   human    HELD
+  [52/56] FL01_08 flood_same_creator 200   human    HELD
+  [53/56] FL01_09 flood_same_creator 200   human    HELD
+  [54/56] FL01_10 flood_same_creator 200   human    HELD
+  [55/56] FL01_11 flood_same_creator 429   —        HELD  (Rate limited properly!)
+  [56/56] FL01_12 flood_same_creator 429   —        HELD  (Rate limited properly!)
+```
 
 **Did it help, and how do I know:**
-
-<!-- Widening the unsure band usually fixes one problem and creates another.
-     Reporting that trade honestly is worth full credit. -->
-
-
+Yes, it resolved the Label Coverage miss (`3/3` labels reached across all 3 trials in `run_eval.py --label after`) and caught four additional attacks (`EV07` at `0.5508`, `EV09` at `0.5994`, `PI03` at `0.5803`, and `PI06` at `0.5953`) that previously hid in the `unsure` band. However, narrowing the `unsure` band proved the exact trade-off warned about in Milestone 5: `FP01` (plain human writing scoring `0.6268`) and one of my own 10 human-written pieces (`0.5903`) crossed the new `0.55` threshold and were falsely accused as `ai`.
 
 ---
 
 ## What's Still Broken
 
-<!-- For each attack still getting through and each criterion still missed:
-     what you'd do, and why you stopped. -->
-
-
+* **Single-Character Crash (`MF02` returning 500) & Non-Prose Inputs (`MF03`–`MF07`, `RQ06` returning 200):** In `app.py::submit`, I would enforce a minimum character/word length (e.g., at least 20 characters and 5 alphabetic words) and catch `ValueError` from `detector.model_signal` so short strings return a `400` instead of a `500`, reject non-string `creator_id` payloads (`RQ06`), and require a minimum ratio of alphabetic characters to reject control-character, emoji-only, and punctuation-only floods (`MF03`–`MF06`).
+* **Evasion via Perturbations (`EV01`–`EV06`, `EV08`) & Formal Human False Positives (`FP01`–`FP07`):** I would normalize whitespace/punctuation before running `stylometry.py` and re-calibrate `stylometry.py` so that formal, structured human essays (`FP02`–`FP07`) are not penalized for consistent sentence lengths, which would also widen the score spread (`Criterion 2`).
+* **Why I stopped:** Unit 8 restricts changes to the rate limiter, audit log, and a single targeted improvement so the before-and-after runs isolate one variable; modifying `app.py` validation and `stylometry.py` at the same time would make it impossible to attribute which change moved the numbers.
 
 **The trade I'd make if this ran for real:**
-
-<!-- Two sentences. Fewer wrong accusations means more AI text getting through.
-     Say which way you'd go and WHO PAYS FOR IT. -->
-
-
-
-<!-- ═════════════════════════════════════════════════════════════════════
-
-     SUBMISSION CHECKLIST — unit 7
-
-       [ ] criteria.md has five numbered criteria, each naming a target
-       [ ] Each has a reason underneath
-       [ ] POST /submit returns content_id, guess, confidence, label,
-           model_score and style_score
-       [ ] Two signals that measure DIFFERENT things, each with a named blind spot
-       [ ] Three label variants, all reachable, written out in full
-       [ ] POST /appeal changes status and writes to the log
-       [ ] Signals and Scoring names scoring.py::combine_signals
-       [ ] Sample Run: a submission AND an appeal, as pasted text
-       [ ] At least four new commits
-       [ ] Repository URL submitted — WRITE IT DOWN
-
-     SUBMISSION CHECKLIST — unit 8
-
-       [ ] Rate limiting on /submit, with your numbers justified
-       [ ] The pasted run of status codes showing 429
-       [ ] Audit log with all nine fields, recording rejections too
-       [ ] The attack set run IN FULL, every input with an outcome
-       [ ] Ten audit log entries pasted as text
-       [ ] Five criteria across three trials
-       [ ] A diagnosis for every miss and every broken attack — stage AND mechanism
-       [ ] One improvement, with Attack Run — After
-       [ ] What's Still Broken, including the production trade
-       [ ] At least four new commits
-       [ ] The SAME repository URL as last unit
-
-     Do not delete and recreate this repository.
-     ═════════════════════════════════════════════════════════════════════ -->
+If this service ran in production, I would push `AI_THRESHOLD` back up to `0.65` (or `0.70`) and widen the `unsure` band so borderline cases default to `unsure` rather than `ai`. That setting lets more AI-generated text slip through—meaning the platform operator pays a small moderation cost—rather than falsely accusing honest human writers (especially non-native speakers in `FP03` or plain writers in `FP01`), who would otherwise pay with their reputation and trust.
 
 ---
 
