@@ -185,26 +185,18 @@ $ curl.exe "[http://127.0.0.1:5000/log?limit=2](http://127.0.0.1:5000/log?limit=
 
 ## Rate Limiting
 
-**My limits:** ___ per minute, ___ per day
+**My limits:** 10 per minute, 200 per day
 
 **Why those numbers and not others:**
-<!-- Think about two people: a real writer submitting their own work a few
-     times an hour, and a script sending a thousand variations to map your
-     thresholds. Your numbers have to be liveable for the first and hostile to
-     the second. -->
+A genuine human writer checking drafts or revisions submits a piece every few minutes at most, so 10 requests per minute and 200 per day easily accommodates real interactive writing sessions and even heavy classroom editing without friction. Conversely, an automated red-team script attempting to probe and map our decision thresholds (`0.35` and `0.65`) or brute-force evasion variations needs hundreds or thousands of rapid queries; capping at 10/minute throttles automated threshold-mapping scripts within seconds while protecting the CPU-bound local GPT-2 model from queue exhaustion.
 
-**What a caller counts as:** <!-- per address, or per creator_id? They fail
-differently — one script can look like a thousand callers, and one household
-can look like one. -->
+**What a caller counts as:**
+Per `creator_id` when a valid non-empty string `creator_id` is provided in the JSON payload, falling back to the caller's IP address (`get_remote_address()`) when `creator_id` is missing, blank, or when the payload is malformed. This prevents a single household or campus NAT sharing one IP from blocking each other as long as they use distinct creator IDs, though a hostile script rotating fake `creator_id` values can bypass per-creator limits while a malformed flood trips the IP limit.
 
 **The run of status codes when I pushed past it:**
 
-<!-- python run_attacks.py --flood 15 -->
-
-```
-
-```
-
+```text
+200 200 200 200 200 200 200 200 200 200 429 429 429 429 429
 ---
 
 ## Attack Run — Before
